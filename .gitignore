@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Api Key and pre-computed Vector DB
+.env
+.faiss_db/
