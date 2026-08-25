@@ -53,7 +53,7 @@ def load_or_update_graph():
 class CustomRDFRetriever(BaseRetriever):
     # A GraphRAG retriever. It identifies starting nodes based on the query,
     # and then performs a 1-hop Breadth-First Search (BFS) traversal to retrieve 
-    # connected structural context.
+    # connected structural context as individual, rankable LlamaIndex nodes.
     
     def __init__(self, rdf_graph: Graph):
         self.rdf_graph = rdf_graph
@@ -101,42 +101,52 @@ class CustomRDFRetriever(BaseRetriever):
             return []
 
         # =========================================================
-        # STEP 2: Graph Traversal (1-Hop BFS)
+        # STEP 2: Graph Traversal (1-Hop BFS) with Granular Nodes!
         # =========================================================
-        relevant_triples = set()
+        nodes_with_scores = []
+        seen_triples = set()
         
         for node in matched_nodes:
-            # Traversal A: Find all OUTGOING relationships (node -> pred -> obj)
+            
+            # Traversal A: OUTGOING relationships (node -> pred -> obj)
             for s, p, o in self.rdf_graph.triples((node, None, None)):
                 clean_s = self._format_node(s)
                 clean_p = self._format_node(p)
                 clean_o = self._format_node(o)
-                relevant_triples.add(f"{clean_s} -> {clean_p} -> {clean_o}")
+                triple_str = f"{clean_s} -> {clean_p} -> {clean_o}"
+                
+                if triple_str not in seen_triples:
+                    seen_triples.add(triple_str)
+                    
+                    # Create an individual node for each fact
+                    text_node = TextNode(
+                        text=f"Knowledge Graph Fact: {triple_str}",
+                        metadata={"source": "rdflib_graph_traversal", "entity": str(node)}
+                    )
+                    # Give it a strong starting score for RRF
+                    nodes_with_scores.append(NodeWithScore(node=text_node, score=1.0))
 
-            # Traversal B: Find all INCOMING relationships (subj -> pred -> node)
+            # Traversal B: INCOMING relationships (subj -> pred -> node)
             for s, p, o in self.rdf_graph.triples((None, None, node)):
                 clean_s = self._format_node(s)
                 clean_p = self._format_node(p)
                 clean_o = self._format_node(o)
-                relevant_triples.add(f"{clean_s} -> {clean_p} -> {clean_o}")
-
-        # =========================================================
-        # STEP 3: Package Context for the LLM
-        # =========================================================
-        combined_graph_context = "\n".join(relevant_triples)
+                triple_str = f"{clean_s} -> {clean_p} -> {clean_o}"
+                
+                if triple_str not in seen_triples:
+                    seen_triples.add(triple_str)
+                    
+                    text_node = TextNode(
+                        text=f"Knowledge Graph Fact: {triple_str}",
+                        metadata={"source": "rdflib_graph_traversal", "entity": str(node)}
+                    )
+                    nodes_with_scores.append(NodeWithScore(node=text_node, score=1.0))
         
-        node = TextNode(
-            text=f"Knowledge Graph Context (1-Hop Traversal):\n{combined_graph_context}",
-            metadata={"source": "rdflib_graph_traversal"}
-        )
-        
-        return [NodeWithScore(node=node, score=1.0)]
+        return nodes_with_scores
 
 if __name__ == "__main__":
-    # Test the standalone GraphRAG Traversal
     kg = load_or_update_graph()
     if kg:
         retriever = CustomRDFRetriever(kg)
         test_query = "Where is Lesson 42 set?"
-        
         results = retriever._retrieve(QueryBundle(test_query))
