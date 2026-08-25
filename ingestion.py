@@ -3,22 +3,18 @@ from llama_index.core import Document
 from pathlib import Path
 import subprocess
 
+# Ensures the submodule is initialized and sparse-checkout is configured.
 def ensure_submodule_data(base_path: Path):
-    """Ensures the submodule is initialized and sparse-checkout is configured."""
     transcripts_path = base_path / "transcripts"
     
     if not transcripts_path.exists() or not any(transcripts_path.iterdir()):
-        print("Barberotheca transcripts not detected. Configuring sparse-checkout automatically...")
         subprocess.run(["git", "submodule", "update", "--init", "--depth", "1"], check=True)
         subprocess.run(["git", "-C", str(base_path), "sparse-checkout", "init", "--cone"], check=True)
         subprocess.run(["git", "-C", str(base_path), "sparse-checkout", "set", "transcripts", "metadata"], check=True)
-        print("Data successfully pulled and filtered!")
 
+# Loads metadata and transcript text files from the barberotheca partial clone.
+# Returns a Pandas DataFrame of the metadata and a list of LlamaIndex Documents.
 def load_data_from_barberotheca(base_dir="data/barberotheca"):
-    """
-    Loads metadata and transcript text files from the barberotheca partial clone.
-    Returns a Pandas DataFrame of the metadata and a list of LlamaIndex Documents.
-    """
     base_path = Path(base_dir)
     ensure_submodule_data(base_path)
     
@@ -32,7 +28,6 @@ def load_data_from_barberotheca(base_dir="data/barberotheca"):
                 metadata={"source": str(txt_path), "file_id": txt_path.stem}
             ))
             
-    print(f"Successfully loaded {len(documents)} transcripts and metadata mapping.")
     return barbero_df, documents
 
 if __name__ == "__main__":
