@@ -24,6 +24,7 @@ def load_data_from_barberotheca(base_dir="data/barberotheca"):
     for txt_path in (base_path / "transcripts").glob("*.txt"):
         with open(txt_path, "r", encoding="utf-8") as f:
             documents.append(Document(
+                id_=txt_path.stem,
                 text=f.read(), 
                 metadata={"source": str(txt_path), "file_id": txt_path.stem}
             ))
