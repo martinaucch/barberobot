@@ -100,7 +100,8 @@ def setup_hybrid_retriever():
     embed_model = HuggingFaceEmbedding(
         model_name="intfloat/multilingual-e5-large-instruct",
         query_instruction="Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
-        text_instruction=""
+        text_instruction="",
+        device="cpu"
     )
     from llama_index.core import Settings
     Settings.embed_model = embed_model
@@ -121,7 +122,8 @@ def setup_hybrid_retriever():
     graph_retriever = CustomRDFRetriever(rdf_graph=kg)
     
     # Initialize the BGE cross-encoder re-ranker
-    reranker = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=True)
+    # Forcing fp32/cpu to prevent Mac Apple Silicon (MPS) silent hangs
+    reranker = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=False)
     
     smart_retriever = SmartHybridRetriever(vector_index, graph_retriever, reranker)
     return smart_retriever

@@ -54,7 +54,7 @@ def update_vector_store():
     # Process documents one at a time to avoid MPS memory pressure
     for i, doc in enumerate(documents):
         print(f"[{i+1}/{len(documents)}] {doc.id_}")
-        pipeline.run(documents=[doc], show_progress=False)
+        pipeline.run(documents=[doc], show_progress=True)
     
     pipeline.docstore.persist(docstore_path)
     print(f"Done. Total chunks: {chroma_collection.count()}")

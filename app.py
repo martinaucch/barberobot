@@ -38,44 +38,45 @@ Given the context information and not prior knowledge, answer the query.
 Query: {query_str}
 Answer: """
 
+# ==========================================
+# 1. SETUP THE LLM (Global Scope)
+# ==========================================
+global_llm = Groq(
+    model="qwen/qwen3.8-27b", 
+    api_key=os.environ.get("GROQ_API_KEY"),
+    temperature=0.1
+)
+Settings.llm = global_llm
+
+# ==========================================
+# 2. INITIALIZE HYBRID PIPELINE (Global Scope)
+# ==========================================
+print("Loading BarberoBot models into memory (this will take ~30-60s)...")
+global_hybrid_retriever = setup_hybrid_retriever()
+global_query_engine = RetrieverQueryEngine.from_args(
+    retriever=global_hybrid_retriever,
+)
+print("Models loaded! Chainlit is ready.")
+
 @cl.on_chat_start
 async def start():
     """
     Runs once when the user opens the web browser.
-    Initializes the Groq LLM and the Hybrid GraphRAG pipeline.
     """
-    msg = cl.Message(content="Loading BarberoBot (Connecting to Groq, ChromaDB, and RDFlib)...")
+    msg = cl.Message(content="BarberoBot is ready! What would you like to know?")
     await msg.send()
 
     try:
         # ==========================================
-        # 1. SETUP THE LLM
+        # 3. SET SYSTEM PROMPT & SAVE TO SESSION
         # ==========================================
-        llm = Groq(
-            model="qwen/qwen3.8-27b", 
-            api_key=os.environ.get("GROQ_API_KEY"),
-            temperature=0.1
-        )
-        Settings.llm = llm
-        
-        # ==========================================
-        # 2. INITIALIZE HYBRID PIPELINE
-        # (This also sets Settings.embed_model)
-        # ==========================================
-        hybrid_retriever = setup_hybrid_retriever()
-        
-        # Connect the hybrid retriever to the Query Engine
-        query_engine = RetrieverQueryEngine.from_args(
-            retriever=hybrid_retriever,
-        )
-
-        # Inject our custom BarberoBot prompt so it only affects the LLM, NOT the retriever!
         from llama_index.core import PromptTemplate
-        qa_prompt = PromptTemplate(prompt_text)
-        query_engine.update_prompts({"response_synthesizer:text_qa_template": qa_prompt})
+        global_query_engine.update_prompts(
+            {"response_synthesizer:text_qa_template": PromptTemplate(prompt_text)}
+        )
+        
+        cl.user_session.set("query_engine", global_query_engine)
 
-        # Store the query engine in the user's session state
-        cl.user_session.set("query_engine", query_engine)
 
         msg.content = "BarberoBot is ready! Ask me anything about Professor Barbero's lectures, the Battle of Lepanto, the Crusades, or any other historical topic he covers."
         await msg.update()
