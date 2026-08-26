@@ -1,4 +1,7 @@
 import os
+# Fix for Mac Apple Silicon (MPS) Out of Memory errors when loading large embedding models
+os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+
 import chainlit as cl
 from llama_index.core import Settings
 from llama_index.llms.groq import Groq 
@@ -27,7 +30,13 @@ INSTRUCTIONS
 - IF the retrieved context does not contain the required information, you may use your general knowledge, but you MUST preface it by saying: "I am not entirely sure about this based on the lecture transcripts, but..."
 - If you use a Knowledge Graph Fact from the context, try to mention the explicit relationship (e.g., "According to the graph, X is connected to Y").
 
-Now answer the query: {query_str}"""
+Context information is below.
+---------------------
+{context_str}
+---------------------
+Given the context information and not prior knowledge, answer the query.
+Query: {query_str}
+Answer: """
 
 @cl.on_chat_start
 async def start():
@@ -40,10 +49,8 @@ async def start():
 
     try:
         # ==========================================
-        # 1. SETUP THE LLM (Groq API)
+        # 1. SETUP THE LLM
         # ==========================================
-        # We use Groq for fast generation, 
-        # just like in your professor's script!
         llm = Groq(
             model="qwen/qwen3.8-27b", 
             api_key=os.environ.get("GROQ_API_KEY"),
@@ -53,6 +60,7 @@ async def start():
         
         # ==========================================
         # 2. INITIALIZE HYBRID PIPELINE
+        # (This also sets Settings.embed_model)
         # ==========================================
         hybrid_retriever = setup_hybrid_retriever()
         
@@ -60,6 +68,11 @@ async def start():
         query_engine = RetrieverQueryEngine.from_args(
             retriever=hybrid_retriever,
         )
+
+        # Inject our custom BarberoBot prompt so it only affects the LLM, NOT the retriever!
+        from llama_index.core import PromptTemplate
+        qa_prompt = PromptTemplate(prompt_text)
+        query_engine.update_prompts({"response_synthesizer:text_qa_template": qa_prompt})
 
         # Store the query engine in the user's session state
         cl.user_session.set("query_engine", query_engine)
@@ -83,11 +96,9 @@ async def main(message: cl.Message):
     await msg.send()
 
     try:
-        # Wrap the user's message in our custom prompt template
-        formatted_query = prompt_text.format(query_str=message.content)
-        
         # Execute the Hybrid GraphRAG query!
-        response = await cl.make_async(query_engine.query)(formatted_query)
+        # CRITICAL FIX: Only pass the user's short message to the retriever!
+        response = await cl.make_async(query_engine.query)(message.content)
         
         # Send the main text
         msg.content = str(response)

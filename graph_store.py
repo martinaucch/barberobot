@@ -77,14 +77,47 @@ class CustomRDFRetriever(BaseRetriever):
         return entities_dict
 
     def _fetch_wikidata_summary(self, wikidata_url: str):
-        """Fetches a live description from Wikidata using the Q-ID!"""
+        """Fetches dates, aliases, and Wikipedia summaries from Wikidata/Wikipedia using the Q-ID!"""
         try:
             q_id = wikidata_url.split("/")[-1]
-            api_url = f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={q_id}&format=json&props=descriptions&languages=it"
+            api_url = f"https://www.wikidata.org/w/api.php?action=wbgetentities&ids={q_id}&format=json&props=labels|descriptions|aliases|claims|sitelinks&languages=it"
             headers = {"User-Agent": "BarberoBot/1.0 (barberobot@example.com)"}
-            response = requests.get(api_url, headers=headers, timeout=2).json()
-            description = response['entities'][q_id]['descriptions']['it']['value']
-            return f" (Wikidata Live Description: {description})"
+            response = requests.get(api_url, headers=headers, timeout=3).json()
+            entity = response['entities'].get(q_id, {})
+            
+            description = entity.get('descriptions', {}).get('it', {}).get('value', '')
+            aliases_list = [a['value'] for a in entity.get('aliases', {}).get('it', [])]
+            aliases_str = f" | Aliases: {', '.join(aliases_list)}" if aliases_list else ""
+            
+            claims = entity.get('claims', {})
+            birth_date = ""
+            if "P569" in claims:
+                try: birth_date = claims["P569"][0]["mainsnak"]["datavalue"]["value"]["time"]
+                except: pass
+            death_date = ""
+            if "P570" in claims:
+                try: death_date = claims["P570"][0]["mainsnak"]["datavalue"]["value"]["time"]
+                except: pass
+                
+            dates_str = ""
+            if birth_date or death_date:
+                clean_b = birth_date.replace('+','').split('T')[0] if birth_date else '?'
+                clean_d = death_date.replace('+','').split('T')[0] if death_date else '?'
+                dates_str = f" | Dates: {clean_b} - {clean_d}"
+
+            wiki_summary = ""
+            sitelinks = entity.get('sitelinks', {})
+            if 'itwiki' in sitelinks:
+                title = sitelinks['itwiki']['title']
+                wiki_api = f"https://it.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=true&explaintext=true&titles={title}&format=json"
+                wiki_res = requests.get(wiki_api, headers=headers, timeout=3).json()
+                pages = wiki_res.get('query', {}).get('pages', {})
+                for p_id, p_data in pages.items():
+                    if 'extract' in p_data:
+                        wiki_summary = f" | Wikipedia: {p_data['extract'][:600]}..."
+                        break
+                        
+            return f" (Wikidata Context: {description}{aliases_str}{dates_str}{wiki_summary})"
         except Exception:
             return ""
 
@@ -102,28 +135,22 @@ class CustomRDFRetriever(BaseRetriever):
         # =========================================================
         # STEP 1: AUTHORITATIVE ENTITY MATCHING (The Smart Way)
         # =========================================================
-        # We check if any of our exact entities from the CSV are in the user's question
-        for surface_form, rdf_name in self.authoritative_entities.items():
-            if surface_form in user_query:
-                # We found an exact match! (e.g. "giovanna d'arco")
-                # Construct the exact URI used in the graph
+        # We check if any of our exact entities from the CSV are in the user's question.
+        # We sort by length descending to ensure "giovanna d'arco" matches before "giovanna".
+        query_text = user_query
+        sorted_entities = sorted(self.authoritative_entities.keys(), key=len, reverse=True)
+        
+        for surface_form in sorted_entities:
+            # We use regex word boundaries to avoid matching "arco" in "marco" even for dictionary keys
+            if re.search(rf'\b{re.escape(surface_form)}\b', query_text):
+                rdf_name = self.authoritative_entities[surface_form]
                 exact_uri = URIRef(f"{self.namespace}{rdf_name}")
                 matched_nodes.add(exact_uri)
+                # Remove the matched surface form so its substrings don't match again
+                query_text = re.sub(rf'\b{re.escape(surface_form)}\b', '', query_text)
 
-        # Fallback: If no exact entities matched, we fall back to keyword regex matching
-        if not matched_nodes:
-            stop_words = {"what", "who", "where", "is", "the", "a", "an", "of", "in", "about", "did", "say", "cosa", "chi", "come", "dove", "dice"}
-            words = re.findall(r'\b\w+\b', user_query)
-            keywords = [w for w in words if w not in stop_words and len(w) > 3]
-            
-            for subj, pred, obj in self.rdf_graph:
-                subj_str, obj_str = str(subj).lower(), str(obj).lower()
-                for kw in keywords:
-                    if re.search(rf'\b{re.escape(kw)}\b', subj_str):
-                        matched_nodes.add(subj)
-                    if re.search(rf'\b{re.escape(kw)}\b', obj_str):
-                        matched_nodes.add(obj)
-
+        # 🚨 DELETED THE FALLBACK KEYWORD MATCHING HERE 🚨
+        # If there are no exact entity matches from the CSV, the graph returns nothing!
         if not matched_nodes:
             return []
 
@@ -137,8 +164,12 @@ class CustomRDFRetriever(BaseRetriever):
             # Traversal A: OUTGOING
             for s, p, o in self.rdf_graph.triples((node, None, None)):
                 wikidata_context = ""
-                if "sameAs" in str(p) and "wikidata.org" in str(o):
-                    wikidata_context = self._fetch_wikidata_summary(str(o))
+                if "sameAs" in str(p):
+                    if "wikidata.org" in str(o):
+                        wikidata_context = self._fetch_wikidata_summary(str(o))
+                    else:
+                        # Skip VIAF, GeoNames, or any other non-Wikidata sameAs links
+                        continue
 
                 clean_s, clean_p, clean_o = self._format_node(s), self._format_node(p), self._format_node(o)
                 triple_str = f"{clean_s} -> {clean_p} -> {clean_o}{wikidata_context}"
@@ -154,7 +185,15 @@ class CustomRDFRetriever(BaseRetriever):
             # Traversal B: INCOMING
             for s, p, o in self.rdf_graph.triples((None, None, node)):
                 clean_s, clean_p, clean_o = self._format_node(s), self._format_node(p), self._format_node(o)
-                triple_str = f"{clean_s} -> {clean_p} -> {clean_o}"
+                
+                # Fetch the identifier if 's' is a lesson
+                lesson_id_str = ""
+                from rdflib.namespace import DCTERMS
+                for identifier in self.rdf_graph.objects(s, DCTERMS.identifier):
+                    lesson_id_str = f" (nella lezione intitolata '{str(identifier)}')"
+                    break
+
+                triple_str = f"{clean_s} -> {clean_p} -> {clean_o}{lesson_id_str}"
                 
                 if triple_str not in seen_triples:
                     seen_triples.add(triple_str)

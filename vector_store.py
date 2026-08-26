@@ -22,7 +22,8 @@ def update_vector_store():
     embed_model = HuggingFaceEmbedding(
         model_name="intfloat/multilingual-e5-large-instruct",
         query_instruction="Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
-        text_instruction="" 
+        text_instruction="",
+        device="cpu"
     )
 
     # Set up ChromaDB Vector Database
@@ -42,20 +43,21 @@ def update_vector_store():
     # Build the Ingestion Pipeline
     pipeline = IngestionPipeline(
         transformations=[
-            SentenceSplitter(chunk_size=1024, chunk_overlap=32),
+            SentenceSplitter(chunk_size=256, chunk_overlap=64),
             embed_model,
         ],
         docstore=docstore,
-        # UPSERTS strategy: embeds only new or modified files
         docstore_strategy=DocstoreStrategy.UPSERTS,
         vector_store=vector_store,
     )
     
-    # Run the pipeline
-    pipeline.run(documents=documents, show_progress=True)
+    # Process documents one at a time to avoid MPS memory pressure
+    for i, doc in enumerate(documents):
+        print(f"[{i+1}/{len(documents)}] {doc.id_}")
+        pipeline.run(documents=[doc], show_progress=False)
     
-    # Save the document store state
     pipeline.docstore.persist(docstore_path)
+    print(f"Done. Total chunks: {chroma_collection.count()}")
 
 if __name__ == "__main__":
     # Create the storage directory if it doesn't exist
