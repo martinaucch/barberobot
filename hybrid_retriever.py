@@ -56,14 +56,17 @@ class SmartHybridRetriever(BaseRetriever):
         # Use the cleaned query for both graph and vector retrieval
         effective_bundle = QueryBundle(cleaned_query)
         
-        # 1. Graph Retrieval — inject entity facts as bonus context
-        graph_nodes = self.graph_retriever._retrieve(effective_bundle)
+        # 1. Entity Extraction & Lesson Disambiguation via Knowledge Graph
+        entities = self.graph_retriever.extract_entities(cleaned_query)
+        boosted_lesson_ids = []
+        if entities:
+            boosted_lesson_ids = self.graph_retriever.get_lessons_for_entities(entities)
         
         # 2. Broad vector search — retrieve a wide pool of candidates
         broad_retriever = self.vector_index.as_retriever(similarity_top_k=25)
         vector_nodes = broad_retriever.retrieve(effective_bundle)
         
-        # 3. Deduplicate before re-ranking
+        # 3. Deduplicate candidates
         unique_nodes = []
         seen_text = set()
         for node in vector_nodes:
@@ -72,7 +75,7 @@ class SmartHybridRetriever(BaseRetriever):
                 seen_text.add(text_snippet)
                 unique_nodes.append(node)
         
-        # 4. Cross-encoder re-ranking
+        # 4. Cross-encoder re-ranking with boosting
         if unique_nodes:
             pairs = [[cleaned_query, node.node.get_text()] for node in unique_nodes]
             scores = self.reranker.compute_score(pairs, normalize=True)
@@ -81,16 +84,43 @@ class SmartHybridRetriever(BaseRetriever):
             if isinstance(scores, float):
                 scores = [scores]
             
-            # Sort by re-ranker score (descending)
-            scored_nodes = list(zip(scores, unique_nodes))
+            # Boost scores for chunks that belong to the graph-disambiguated lessons
+            boosted_scores = []
+            for score, node in zip(scores, unique_nodes):
+                file_id = node.node.metadata.get("file_id")
+                if file_id in boosted_lesson_ids:
+                    boosted_scores.append(score + 0.5)  # Significant boost
+                else:
+                    boosted_scores.append(score)
+            
+            # Sort by boosted re-ranker score (descending)
+            scored_nodes = list(zip(boosted_scores, unique_nodes))
             scored_nodes.sort(key=lambda x: x[0], reverse=True)
             
             # Take top 8 after re-ranking
             reranked_nodes = [node for _, node in scored_nodes[:8]]
         else:
             reranked_nodes = []
+
+        # 5. Graph Metadata Enrichment
+        from llama_index.core.schema import NodeWithScore, TextNode
+        metadata_nodes = []
+        seen_file_ids = set()
         
-        return graph_nodes + reranked_nodes
+        for node in reranked_nodes:
+            file_id = node.node.metadata.get("file_id")
+            if file_id and file_id not in seen_file_ids:
+                seen_file_ids.add(file_id)
+                metadata_str = self.graph_retriever.get_lesson_metadata(file_id)
+                if metadata_str:
+                    text_node = TextNode(
+                        text=metadata_str,
+                        metadata={"source": "rdflib_graph_metadata", "file_id": file_id}
+                    )
+                    metadata_nodes.append(NodeWithScore(node=text_node, score=1.0))
+        
+        # We return the metadata text blocks first, so the LLM reads them before the chunks
+        return metadata_nodes + reranked_nodes
 
 
 def setup_hybrid_retriever():

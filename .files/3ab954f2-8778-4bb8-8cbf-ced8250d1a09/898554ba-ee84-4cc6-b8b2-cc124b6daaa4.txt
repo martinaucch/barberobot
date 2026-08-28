@@ -1,0 +1,3 @@
+**Entità riconosciute nel Knowledge Graph:**
+
+- [Lepanto](https://github.com/metamuses/barberotheca/entity/Lepanto)
