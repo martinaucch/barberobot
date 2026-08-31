@@ -21,6 +21,27 @@ html {
 }
 
 /* =========================================
+   5. LINK & CITATION STYLING
+   ========================================= */
+.cl-markdown a,
+.element-link,
+.inline-element-link,
+a.inline-element-link,
+.citation-marker {
+    color: #0000EE !important;
+    text-decoration: underline !important;
+}
+
+/* Ensure blue is readable in dark mode */
+html.dark .cl-markdown a,
+html.dark .element-link,
+html.dark .inline-element-link,
+html.dark a.inline-element-link,
+html.dark .citation-marker {
+    color: #3b82f6 !important; 
+}
+
+/* =========================================
    2. FIX THE SQUISHED AVATAR
    ========================================= */
 img[alt="Avatar for BarberoBot"],
@@ -56,4 +77,58 @@ textarea::placeholder, input::placeholder {
 html:not(.dark) textarea::placeholder, 
 html:not(.dark) input::placeholder {
     color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* =========================================
+   5. ACTUAL HYPERLINK STYLING
+   ========================================= */
+/* Target only actual links with an href, and explicitly EXCLUDE citation buttons */
+.cl-markdown a[href]:not(.element-link):not(.inline-element-link):not(.citation-marker),
+a[href].text-primary:not(.element-link):not(.inline-element-link):not(.citation-marker) {
+    color: #0000EE !important;
+    text-decoration: underline !important;
+}
+
+/* Ensure blue is readable in dark mode */
+html.dark .cl-markdown a[href]:not(.element-link):not(.inline-element-link):not(.citation-marker),
+html.dark a[href].text-primary:not(.element-link):not(.inline-element-link):not(.citation-marker) {
+    color: #3b82f6 !important; 
+}
+
+/* =========================================
+   6. CITATION BADGE STYLING
+   ========================================= */
+/* Force citation buttons to look like NotebookLM badges instead of text/links */
+.element-link,
+.inline-element-link,
+.citation-marker {
+    color: inherit !important;
+    text-decoration: none !important;
+    font-weight: 600 !important;
+    font-size: 0.85em;
+    background-color: rgba(128, 128, 128, 0.15);
+    padding: 0.1em 0.4em;
+    border-radius: 6px;
+    cursor: pointer;
+    margin: 0 0.1em;
+    transition: background-color 0.2s ease;
+}
+
+/* Hover effect so it's obviously clickable */
+.element-link:hover,
+.inline-element-link:hover,
+.citation-marker:hover {
+    background-color: rgba(128, 128, 128, 0.3);
+}
+
+/* Dark mode tweaks for the badge */
+html.dark .element-link,
+html.dark .inline-element-link,
+html.dark .citation-marker {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+html.dark .element-link:hover,
+html.dark .inline-element-link:hover,
+html.dark .citation-marker:hover {
+    background-color: rgba(255, 255, 255, 0.2);
 }
