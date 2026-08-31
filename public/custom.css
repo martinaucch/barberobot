@@ -102,7 +102,7 @@ html.dark a[href].text-primary:not(.element-link):not(.inline-element-link):not(
 .element-link,
 .inline-element-link,
 .citation-marker {
-    color: inherit !important;
+    color: #ffffff !important;
     text-decoration: none !important;
     font-weight: 600 !important;
     font-size: 0.85em;

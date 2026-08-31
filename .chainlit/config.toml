@@ -36,7 +36,7 @@ user_message_markdown = true
 user_message_autoscroll = true
 
 # Autoscroll new assistant messages
-assistant_message_autoscroll = true
+assistant_message_autoscroll = false
 
 # Automatically tag threads with the current chat profile (if a chat profile is used)
 auto_tag_thread = true

@@ -132,45 +132,47 @@ async def main(message: cl.Message):
                 vector_nodes.append(node)
         
         # 3. Create Chainlit elements ONLY for the vector nodes (transcripts)
+        #    Each snippet gets its own unique citation so clicking opens exactly that passage.
         import re
-        elements_dict = {}
+        from collections import defaultdict
+        
+        # First pass: assign lesson IDs and count occurrences per lesson
+        node_info = []
+        lesson_counts = defaultdict(int)
         
         for i, node in enumerate(vector_nodes, 1):
             original_text = node.node.get_content()
             file_id = node.node.metadata.get("file_id", "Unknown File")
             
-            # Fetch graph metadata to find the mainEntityOfPage ID
             metadata_str = retriever.graph_retriever.get_lesson_metadata(file_id)
-            match = re.search(r'id=(\d+)', metadata_str)
+            id_match = re.search(r'id=(\d+)', metadata_str)
+            citation_num = id_match.group(1) if id_match else str(i + 100)
             
-            if match:
-                citation_num = match.group(1)
-            else:
-                citation_num = str(i + 100) # Fallback to avoid collisions
-                
-            node.node.set_content(f"Fonte {citation_num}:\n{original_text}")
+            title_match = re.search(r'- Titolo Lezione: (.*)', metadata_str)
+            lesson_name = title_match.group(1).strip() if title_match else file_id
             
-            if citation_num not in elements_dict:
-                # Extract the actual title from the Graph metadata string
-                title_match = re.search(r'- Titolo Lezione: (.*)', metadata_str)
-                lesson_name = title_match.group(1).strip() if title_match else file_id
-                
-                elements_dict[citation_num] = {
-                    "name": f"[{citation_num}]",
-                    "lesson_name": lesson_name,
-                    "snippets": [original_text]
-                }
-            else:
-                elements_dict[citation_num]["snippets"].append(original_text)
-
-        # Build the final Chainlit text elements
+            lesson_counts[citation_num] += 1
+            node_info.append((node, original_text, citation_num, lesson_name))
+        
+        # Second pass: build citation labels and elements
         elements = []
-        for citation_num, data in elements_dict.items():
-            combined_snippets = "\n\n---\n\n".join(data["snippets"])
+        lesson_seen = defaultdict(int)
+        
+        for node, original_text, citation_num, lesson_name in node_info:
+            lesson_seen[citation_num] += 1
+            
+            # If a lesson has multiple snippets, add sub-index (e.g. [36.1], [36.2])
+            if lesson_counts[citation_num] > 1:
+                citation_label = f"{citation_num}.{lesson_seen[citation_num]}"
+            else:
+                citation_label = citation_num
+            
+            node.node.set_content(f"Fonte {citation_label}:\n{original_text}")
+            
             elements.append(
                 cl.Text(
-                    name=data["name"],
-                    content=f"### {data['lesson_name']}\n\n**Testi originali estratti:**\n\n{combined_snippets}",
+                    name=f"[{citation_label}]",
+                    content=f"### {lesson_name}\n\n**Passaggio citato:**\n\n{original_text}",
                     display="side"
                 )
             )
@@ -183,10 +185,13 @@ async def main(message: cl.Message):
             message.content, nodes=final_nodes
         )
         
-        # 4. Send the main text with elements attached (this enables Chainlit's inline citations)
+        # 5. Send the main text with elements attached (this enables Chainlit's inline citations)
         msg.content = str(response)
         msg.elements = elements
         await msg.update()
+        
+        # Close the side panel so it doesn't auto-open; user must click a citation to open it
+        await cl.ElementSidebar.set_elements([])
         
     except Exception as e:
         msg.content = f"Sorry, I encountered an error while processing that: {str(e)}"
