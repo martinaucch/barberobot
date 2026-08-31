@@ -7,6 +7,7 @@ from llama_index.core import Settings
 from llama_index.llms.groq import Groq 
 from llama_index.core.query_engine import RetrieverQueryEngine
 from dotenv import load_dotenv 
+import time
 
 # Import our custom hybrid retriever setup
 from hybrid_retriever import setup_hybrid_retriever
@@ -73,6 +74,7 @@ async def start():
     """
     Runs once when the user opens the web browser.
     """
+    time.sleep(3)
     msg = cl.Message(content="BarberoBot is ready! What would you like to know?")
     await msg.send()
 
@@ -88,7 +90,7 @@ async def start():
         cl.user_session.set("query_engine", global_query_engine)
 
 
-        msg.content = "BarberoBot is ready! Ask me anything about Professor Barbero's lectures, the Battle of Lepanto, the Crusades, or any other historical topic he covers."
+        msg.content = "BarberoBot è pronto! Chiedimi ciò che desideri riguardo alle lezioni del professor Barbero."
         await msg.update()
         
     except Exception as e:

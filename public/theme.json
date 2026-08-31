@@ -1,0 +1,19 @@
+{
+    "custom_fonts": [],
+    "variables": {
+        "light": {
+            "--font-sans": "'Kabel', sans-serif",
+            "--font-mono": "'Kabel', sans-serif",
+            "--primary": "210 11% 15%",
+            "--primary-foreground": "0 0% 100%",
+            "--ring": "210 11% 15%"
+        },
+        "dark": {
+            "--font-sans": "'Kabel', sans-serif",
+            "--font-mono": "'Kabel', sans-serif",
+            "--primary": "210 11% 15%",
+            "--primary-foreground": "0 0% 100%",
+            "--ring": "210 11% 15%"
+        }
+    }
+}

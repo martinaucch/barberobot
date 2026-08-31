@@ -1,3 +1,0 @@
-**Entità riconosciute nel Knowledge Graph:**
-
-- [GiovannaDArco](https://github.com/metamuses/barberotheca/entity/GiovannaDArco)

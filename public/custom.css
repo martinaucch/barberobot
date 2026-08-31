@@ -1,0 +1,59 @@
+/* =========================================
+   1. IMPORT BARBEROTHECA FONT
+   ========================================= */
+@font-face {
+  font-family: 'Kabel';
+  /* Chainlit serves files from /public at the root level (/) */
+  src: url('/public/fonts/ITCKabelStd-Book.woff2') format('woff2'),
+       url('/public/fonts/ITCKabelStd-Book.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* Force the font on all elements just in case the theme.json misses any */
+body, * {
+    font-family: 'Kabel', sans-serif !important;
+}
+
+/* Increase the overall base font size */
+html {
+    font-size: 110% !important;
+}
+
+/* =========================================
+   2. FIX THE SQUISHED AVATAR
+   ========================================= */
+img[alt="Avatar for BarberoBot"],
+img[src*="BarberoBot"] {
+    object-fit: contain !important;
+    object-position: center !important;
+    background-color: transparent !important;
+}
+
+/* =========================================
+   3. FIX VISIBILITY IN LIGHT MODE
+   ========================================= */
+html:not(.dark) img[alt="Avatar for BarberoBot"],
+html:not(.dark) img[src*="BarberoBot"] {
+    filter: brightness(0) !important;
+}
+
+/* =========================================
+   4. BARBEROTHECA GLOBAL TWEAKS FOR CHAINLIT
+   ========================================= */
+/* Make standard headers use the Kabel style */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: normal !important;
+}
+
+/* Style the text input placeholder to match your CSS */
+textarea::placeholder, input::placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
+    opacity: 1 !important;
+}
+
+/* If you are in light mode, adjust the placeholder color to be visible */
+html:not(.dark) textarea::placeholder, 
+html:not(.dark) input::placeholder {
+    color: rgba(0, 0, 0, 0.5) !important;
+}
