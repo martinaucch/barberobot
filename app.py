@@ -1,18 +1,25 @@
 import os
-# Fix for Mac Apple Silicon (MPS) Out of Memory errors when loading large embedding models
-os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
-
+import re
+import time
+from collections import defaultdict
 import chainlit as cl
+from dotenv import load_dotenv 
+
+# LlamaIndex Imports
 from llama_index.core import Settings
 from llama_index.llms.groq import Groq 
 from llama_index.core.query_engine import RetrieverQueryEngine
-from dotenv import load_dotenv 
-import time
+from llama_index.core import PromptTemplate
+from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.core.llms import ChatMessage, MessageRole
 
 # Import our custom hybrid retriever setup
 from hybrid_retriever import setup_hybrid_retriever
 
-# Load environment variables from your .env file
+# Fix for Mac Apple Silicon (MPS) Out of Memory errors when loading large embedding models
+os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+
+# Load environment variables
 load_dotenv()
 
 # Define the persona and instructions for BarberoBot
@@ -23,6 +30,7 @@ Your role is to act as a scholarly recommendation and guidance system. When answ
 1. TONE & PERSONA:
    - Polite, academic yet accessible, enthusiastic about history, and faithful to Professor Barbero's narrative style.
    - Speak on behalf of the archive (e.g., "Il Professor Barbero ha trattato questo argomento in...", "Nelle sue lezioni emerge che...").
+   - Do NOT use greetings like "Ciao!" or "Benvenuto!" if there is already a conversation history. For follow-up questions, jump straight into the answer.
 
 2. GROUNDING & CONSTRAINTS:
    - Rely ONLY on the provided context (transcript excerpts and Knowledge Graph metadata).
@@ -41,65 +49,68 @@ Your role is to act as a scholarly recommendation and guidance system. When answ
      - Mention the macro-theme or series (e.g., "Questa lezione fa parte della serie '[Series Title]' ([Year])").
      - Suggest related lessons in the same series to further the user's exploration.
 
-4. INLINE CITATIONS:
-   - Each context chunk provided below is numbered (e.g. Fonte 1). 
-   - Quando usi un'informazione da una fonte, DEVI inserire il numero della fonte tra parentesi quadre (es. [1], [2]) direttamente nel testo di "**Cosa dice il Professore**".
-   - CRITICAL: Do NOT output a bullet point for "Citazioni in linea" and do NOT append a list of sources at the end of the response. The citations must ONLY be inline brackets.
+4. CONVERSATIONAL CONTEXT:
+   - Below is the recent conversation history. Use it to understand follow-up questions (e.g. if the user says "dimmi di più", refer to the last topic discussed).
 
 Context information is below.
 ---------------------
 {context_str}
 ---------------------
+Recent Conversation History:
+---------------------
+{chat_history}
+---------------------
 Given the context information and not prior knowledge, answer the query.
 Query: {query_str}
 Answer: """
 
-# ==========================================
-# 1. SETUP THE LLM (Global Scope)
-# ==========================================
-global_llm = Groq(
-    model="qwen/qwen3.8-27b", 
-    api_key=os.environ.get("GROQ_API_KEY"),
-    temperature=0.1
-)
-Settings.llm = global_llm
-
-# ==========================================
-# 2. INITIALIZE HYBRID PIPELINE (Global Scope)
-# ==========================================
-print("Loading BarberoBot models into memory (this will take ~30-60s)...")
-global_hybrid_retriever = setup_hybrid_retriever()
-global_query_engine = RetrieverQueryEngine.from_args(
-    retriever=global_hybrid_retriever,
-)
-print("Models loaded! Chainlit is ready.")
-
 @cl.on_chat_start
 async def start():
     """
-    Runs once when the user opens the web browser.
+    Runs once when the user opens the web browser. This initializes the isolated user session.
     """
-    time.sleep(1)
-    msg = cl.Message(content="BarberoBot is ready! What would you like to know?")
+    # 1. Setup the LLM specific to this session
+    llm = Groq(
+        model="qwen/qwen3.8-27b", 
+        api_key=os.environ.get("GROQ_API_KEY"),
+        temperature=0.1,
+        context_window=32768, # Explicitly set large context window to avoid negative context errors
+    )
+    Settings.llm = llm
+    Settings.context_window = 32768
+
+    # Show the logo for 2 seconds before loading
+    import asyncio
+    await asyncio.sleep(2)
+
+    # 2. Let the user know the system is booting up
+    
+    msg = cl.Message(content="Caricamento dei modelli della Barberotheca in memoria...")
     await msg.send()
 
     try:
-        # ==========================================
-        # 3. SET SYSTEM PROMPT & SAVE TO SESSION
-        # ==========================================
-        from llama_index.core import PromptTemplate
-        global_query_engine.update_prompts(
+        # 3. Initialize the Hybrid Retriever and Query Engine FOR THIS USER ONLY
+        hybrid_retriever = setup_hybrid_retriever()
+        
+        query_engine = RetrieverQueryEngine.from_args(
+            retriever=hybrid_retriever,
+        )
+        
+        # Apply the custom prompt
+        query_engine.update_prompts(
             {"response_synthesizer:text_qa_template": PromptTemplate(prompt_text)}
         )
         
-        cl.user_session.set("query_engine", global_query_engine)
-
+        # 4. Store the engine and memory in the isolated user session dictionary
+        memory = ChatMemoryBuffer.from_defaults(token_limit=4096)
+        cl.user_session.set("memory", memory)
+        cl.user_session.set("query_engine", query_engine)
 
         msg.content = "BarberoBot è pronto! Chiedimi ciò che desideri riguardo alle lezioni del professor Barbero."
         await msg.update()
         
     except Exception as e:
-        msg.content = f"Error initializing system: {str(e)}\n\nCheck your GROQ_API_KEY and make sure you ran vector_store.py!"
+        msg.content = f"Errore durante l'inizializzazione del sistema: {str(e)}"
         await msg.update()
 
 @cl.on_message
@@ -107,7 +118,13 @@ async def main(message: cl.Message):
     """
     Runs every time the user types a message in the chat.
     """
+    # 1. Retrieve the isolated query engine and memory for THIS specific user
     query_engine = cl.user_session.get("query_engine")
+    memory = cl.user_session.get("memory")
+    
+    if not query_engine or not memory:
+        await cl.Message(content="Il sistema non è stato inizializzato correttamente. Ricarica la pagina.").send()
+        return
 
     # Create an empty message for streaming the response
     msg = cl.Message(content="", author="BarberoBot")
@@ -115,13 +132,47 @@ async def main(message: cl.Message):
 
     try:
         # ==========================================
-        # EXECUTE QUERY & SOURCE ATTRIBUTION
+        # FORMAT HISTORY & UPDATE PROMPT
         # ==========================================
-        # 1. Retrieve nodes manually so we can number them for inline citations
+        chat_history_list = memory.get()
+        history_str = ""
+        for m in chat_history_list:
+            role = "Utente" if m.role == MessageRole.USER else "Assistente"
+            history_str += f"{role}: {m.content}\n\n"
+            
+        if not history_str:
+            history_str = "Nessuna conversazione precedente."
+
+        dynamic_prompt = prompt_text.replace("{chat_history}", history_str)
+        query_engine.update_prompts(
+            {"response_synthesizer:text_qa_template": PromptTemplate(dynamic_prompt)}
+        )
+
+        # ==========================================
+        # CONDENSE QUERY & EXECUTE RETRIEVAL
+        # ==========================================
+        # If we have history, rewrite the query to include context (e.g. "di che nazionalità era?" -> "di che nazionalità era Giovanna d'Arco?")
+        actual_query = message.content
+        if chat_history_list:
+            condense_prompt = f"""Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question that includes any relevant context from the conversation (like names or subjects).
+If the follow up question is already standalone, just return it as is. Do not answer the question, ONLY return the rephrased question.
+
+Conversation:
+{history_str}
+
+Follow Up Question: {message.content}
+Standalone Question:"""
+            # Use the LLM to rewrite the query
+            condense_resp = await cl.make_async(Settings.llm.complete)(condense_prompt)
+            actual_query = str(condense_resp).strip()
+            print(f"Original query: '{message.content}' -> Rewritten: '{actual_query}'")
+
+        # 2. Retrieve nodes manually using the contextualized query
         retriever = query_engine.retriever
-        retrieved_nodes = await cl.make_async(retriever.retrieve)(message.content)
+        retrieved_nodes = await cl.make_async(retriever.retrieve)(actual_query)
+        print(f"DEBUG: retrieved_nodes count = {len(retrieved_nodes)}")
         
-        # 2. Separate graph nodes from vector nodes
+        # 3. Separate graph nodes from vector nodes
         graph_nodes = []
         vector_nodes = []
         for node in retrieved_nodes:
@@ -130,20 +181,24 @@ async def main(message: cl.Message):
                 graph_nodes.append(node)
             else:
                 vector_nodes.append(node)
+                
+        # 4. Synthesize the response FIRST (without citations in the text)
+        final_nodes = graph_nodes + vector_nodes
+        response = await cl.make_async(query_engine.synthesize)(
+            message.content, nodes=final_nodes
+        )
         
-        # 3. Create Chainlit elements ONLY for the vector nodes (transcripts)
-        #    Each snippet gets its own unique citation so clicking opens exactly that passage.
-        import re
-        from collections import defaultdict
+        final_text = str(response)
         
-        # First pass: assign lesson IDs and count occurrences per lesson
-        node_info = []
-        lesson_counts = defaultdict(int)
+        # 5. Programmatically build the sources list and cl.Text elements
+        elements = []
+        lessons_dict = defaultdict(list)
         
         for i, node in enumerate(vector_nodes, 1):
             original_text = node.node.get_content()
             file_id = node.node.metadata.get("file_id", "Unknown File")
             
+            # Extract metadata
             metadata_str = retriever.graph_retriever.get_lesson_metadata(file_id)
             id_match = re.search(r'id=(\d+)', metadata_str)
             citation_num = id_match.group(1) if id_match else str(i + 100)
@@ -151,48 +206,45 @@ async def main(message: cl.Message):
             title_match = re.search(r'- Titolo Lezione: (.*)', metadata_str)
             lesson_name = title_match.group(1).strip() if title_match else file_id
             
-            lesson_counts[citation_num] += 1
-            node_info.append((node, original_text, citation_num, lesson_name))
-        
-        # Second pass: build citation labels and elements
-        elements = []
-        lesson_seen = defaultdict(int)
-        
-        for node, original_text, citation_num, lesson_name in node_info:
-            lesson_seen[citation_num] += 1
+            # Create a simple element name (e.g. "Estratto 1")
+            element_name = f"Estratto {i}"
             
-            # If a lesson has multiple snippets, add sub-index (e.g. [36.1], [36.2])
-            if lesson_counts[citation_num] > 1:
-                citation_label = f"{citation_num}.{lesson_seen[citation_num]}"
-            else:
-                citation_label = citation_num
-            
-            node.node.set_content(f"Fonte {citation_label}:\n{original_text}")
-            
+            # Append the element
             elements.append(
                 cl.Text(
-                    name=f"[{citation_label}]",
-                    content=f"### {lesson_name}\n\n**Passaggio citato:**\n\n{original_text}",
+                    name=element_name,
+                    content=f"### {lesson_name}\n\n**Testo originale:**\n\n{original_text}",
                     display="side"
                 )
             )
+            
+            # Group by lesson for the final summary
+            lessons_dict[citation_num].append({
+                "title": lesson_name,
+                "element_name": element_name
+            })
+            
+        # 6. Append the Sources section to the final text
+        if lessons_dict:
+            final_text += "\n\n---\n**Fonti usate per questa risposta:**\n"
+            for lesson_id, chunks in lessons_dict.items():
+                title = chunks[0]["title"]
+                element_names = [c["element_name"] for c in chunks]
+                elements_str = ", ".join(element_names)
+                
+                # Link to Barberotheca
+                lesson_url = f"https://metamuses.github.io/barberotheca/lesson.html?id={lesson_id}"
+                
+                final_text += f"- **[{title}]({lesson_url})** ({elements_str})\n"
 
-        # Recombine nodes: unnumbered graph metadata first, then numbered transcripts
-        final_nodes = graph_nodes + vector_nodes
+        # 7. Save the new exchange to the memory buffer
+        memory.put(ChatMessage(role=MessageRole.USER, content=message.content))
+        memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=final_text))
 
-        # 4. Synthesize the response with the modified nodes
-        response = await cl.make_async(query_engine.synthesize)(
-            message.content, nodes=final_nodes
-        )
-        
-        # 5. Send the main text with elements attached (this enables Chainlit's inline citations)
-        msg.content = str(response)
+        msg.content = final_text
         msg.elements = elements
         await msg.update()
         
-        # Close the side panel so it doesn't auto-open; user must click a citation to open it
-        await cl.ElementSidebar.set_elements([])
-        
     except Exception as e:
-        msg.content = f"Sorry, I encountered an error while processing that: {str(e)}"
+        msg.content = f"Mi dispiace, si è verificato un errore tecnico: {str(e)}"
         await msg.update()
