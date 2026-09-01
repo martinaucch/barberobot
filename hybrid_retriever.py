@@ -4,6 +4,7 @@ import chromadb
 from typing import List
 from llama_index.core import QueryBundle
 from llama_index.core.retrievers import BaseRetriever
+from llama_index.core.vector_stores import MetadataFilters, MetadataFilter
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
@@ -58,18 +59,33 @@ class SmartHybridRetriever(BaseRetriever):
         
         # 1. Entity Extraction & Lesson Disambiguation via Knowledge Graph
         entities = self.graph_retriever.extract_entities(cleaned_query)
-        boosted_lesson_ids = []
-        if entities:
-            boosted_lesson_ids = self.graph_retriever.get_lessons_for_entities(entities)
-        
+        entity_lesson_ids = set(self.graph_retriever.get_lessons_for_entities(entities)) if entities else set()
+
+        boosted_lesson_ids = entity_lesson_ids
+
         # 2. Broad vector search — retrieve a wide pool of candidates
         broad_retriever = self.vector_index.as_retriever(similarity_top_k=25)
         vector_nodes = broad_retriever.retrieve(effective_bundle)
-        
+
+        # 2b. GUARANTEED RETRIEVAL for KG-identified lessons.
+        # Without this, boosted_lesson_ids can point at a lesson that has ZERO
+        # chunks in the top-25 pool (e.g. an entity mentioned in passing in a
+        # lesson that isn't semantically "about" it - this was the Carducci bug).
+        # A boost with nothing to boost does nothing, so we explicitly fetch the
+        # best-matching chunk(s) from each identified lesson via a metadata filter,
+        # guaranteeing they're at least in the pool to be reranked and boosted.
+        forced_nodes = []
+        for file_id in boosted_lesson_ids:
+            filters = MetadataFilters(filters=[MetadataFilter(key="file_id", value=file_id)])
+            forced_retriever = self.vector_index.as_retriever(similarity_top_k=3, filters=filters)
+            forced_nodes.extend(forced_retriever.retrieve(effective_bundle))
+
+        all_candidates = vector_nodes + forced_nodes
+
         # 3. Deduplicate candidates
         unique_nodes = []
         seen_text = set()
-        for node in vector_nodes:
+        for node in all_candidates:
             text_snippet = node.node.get_text()[:100]
             if text_snippet not in seen_text:
                 seen_text.add(text_snippet)
@@ -84,12 +100,16 @@ class SmartHybridRetriever(BaseRetriever):
             if isinstance(scores, float):
                 scores = [scores]
             
-            # Boost scores for chunks that belong to the graph-disambiguated lessons
+            # Boost scores for chunks that belong to the graph-disambiguated lessons.
+            # The floor (max with 0.5) matters for force-fetched nodes: a chunk that
+            # only entered the pool via the metadata filter above may get a low raw
+            # cross-encoder score (it wasn't semantically top-matched to begin with),
+            # so the additive boost alone might not be enough to keep it in the top 8.
             boosted_scores = []
             for score, node in zip(scores, unique_nodes):
                 file_id = node.node.metadata.get("file_id")
                 if file_id in boosted_lesson_ids:
-                    boosted_scores.append(score + 0.5)  # Significant boost
+                    boosted_scores.append(max(score + 0.5, 0.5))
                 else:
                     boosted_scores.append(score)
             
