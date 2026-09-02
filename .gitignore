@@ -220,4 +220,4 @@ __marimo__/
 # Api Key and pre-computed Vector DB
 .env
 .faiss_db/
-storage/
+# storage/

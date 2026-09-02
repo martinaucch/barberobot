@@ -1,0 +1,11 @@
+chainlit  
+llama-index  
+llama-index-llms-groq  
+llama-index-vector-stores-chroma  
+llama-index-embeddings-huggingface  
+sentence-transformers 
+torch  
+rdflib  
+pandas  
+python-dotenv  
+chromadb
