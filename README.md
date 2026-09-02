@@ -9,12 +9,10 @@
 * Python 3.10 or 3.11 installed on your system.
 * A valid **Groq** API key to query the LLM.
 
-### Clone the repository
-Open your terminal and run:
+### Download the project
+You can either download the repository as a ZIP file and extract it, or clone it using your terminal:
 ```bash
-git clone https://github.com/metamuses/barberobot.git
-cd barberobot
-```
+git clone [https://github.com/metamuses/barberobot.git](https://github.com/metamuses/barberobot.git)
 
 ### Set up a virtual environment
 Create and activate a virtual environment to keep dependencies isolated:
@@ -35,7 +33,7 @@ Create a `.env` file in the root directory of the project and add your Groq API 
 GROQ_API_KEY="your_api_key_here"
 ```
 
-### 5. Run the application
+### Run the application
 Start the Chainlit server:
 ```bash
 chainlit run app.py
