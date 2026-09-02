@@ -2,8 +2,6 @@
 
 ## Architecture
 
-## Installation Instructions
-
 ## How to run the app locally
 ### Prerequisites 
 * Python 3.10 or 3.11 installed on your system.
