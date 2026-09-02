@@ -21,7 +21,7 @@ def update_vector_store():
     # Initialize HuggingFace embedding model for multilingual-e5-large-instruct
     embed_model = HuggingFaceEmbedding(
         model_name="intfloat/multilingual-e5-large-instruct",
-        query_instruction="Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
+        query_instruction="Instruct: Given a query, retrieve relevant passages from the lesson's transcripts that answer the query\nQuery: ",
         text_instruction="",
         device="cpu"
     )

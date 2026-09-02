@@ -92,7 +92,7 @@ class SmartHybridRetriever(BaseRetriever):
             return [NodeWithScore(node=n, score=s) for n, s in zip(result.nodes, similarities)]
 
         # Broad vector search — retrieve a wide pool of candidates
-        vector_nodes = _vector_query(top_k=12)
+        vector_nodes = _vector_query(top_k=8)
         t3 = time.time()
         print(f"[TIMING] broad vector search: {t3 - t2:.2f}s")
 
@@ -183,7 +183,7 @@ def setup_hybrid_retriever():
 
     embed_model = HuggingFaceEmbedding(
         model_name="intfloat/multilingual-e5-large-instruct",
-        query_instruction="Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
+        query_instruction="Instruct: Given a query, retrieve relevant passages from the lesson's transcripts that answer the query\nQuery: ",
         text_instruction="",
         device="cpu"
     )
