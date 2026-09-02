@@ -1,14 +1,17 @@
 import os
 import re
+import time
 import chromadb
 from typing import List
 from llama_index.core import QueryBundle
 from llama_index.core.retrievers import BaseRetriever
-from llama_index.core.vector_stores import MetadataFilters, MetadataFilter
+from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, VectorStoreQuery
+from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from FlagEmbedding import FlagReranker
+from sentence_transformers import CrossEncoder
+import torch
 
 # Import our custom components
 from graph_store import load_or_update_graph, CustomRDFRetriever
@@ -44,13 +47,14 @@ class SmartHybridRetriever(BaseRetriever):
     4. Cross-encoder re-rank all 25 candidates
     5. Return top 8 re-ranked chunks + graph facts
     """
-    def __init__(self, vector_index: VectorStoreIndex, graph_retriever: CustomRDFRetriever, reranker: FlagReranker):
+    def __init__(self, vector_index: VectorStoreIndex, graph_retriever: CustomRDFRetriever, reranker: CrossEncoder):
         self.vector_index = vector_index
         self.graph_retriever = graph_retriever
         self.reranker = reranker
         super().__init__()
 
     def _retrieve(self, query_bundle: QueryBundle) -> List:
+        t0 = time.time()
         raw_query = query_bundle.query_str
         cleaned_query = clean_query(raw_query)
         
@@ -62,12 +66,37 @@ class SmartHybridRetriever(BaseRetriever):
         entity_lesson_ids = set(self.graph_retriever.get_lessons_for_entities(entities)) if entities else set()
 
         boosted_lesson_ids = entity_lesson_ids
+        t1 = time.time()
+        print(f"[TIMING] entity extraction: {t1 - t0:.2f}s")
 
-        # 2. Broad vector search — retrieve a wide pool of candidates
-        broad_retriever = self.vector_index.as_retriever(similarity_top_k=25)
-        vector_nodes = broad_retriever.retrieve(effective_bundle)
+        # 2. Compute the query embedding ONCE and reuse it for every vector call
+        # below. Previously, each `.as_retriever().retrieve()` call silently
+        # re-embedded the same query text with a heavy CPU embedding model
+        # (multilingual-e5-large-instruct, ~560M params) - once for the broad
+        # search, then AGAIN for every single boosted lesson in the forced-
+        # retrieval loop. With N matched lessons that's N+1 embedding
+        # computations for one query. Embedding once and passing the vector
+        # directly removes all that redundant work.
+        query_embedding = self.vector_index._embed_model.get_query_embedding(cleaned_query)
+        t2 = time.time()
+        print(f"[TIMING] query embedding (x1): {t2 - t1:.2f}s")
 
-        # 2b. GUARANTEED RETRIEVAL for KG-identified lessons.
+        def _vector_query(top_k: int, filters=None):
+            vs_query = VectorStoreQuery(
+                query_embedding=query_embedding,
+                similarity_top_k=top_k,
+                filters=filters,
+            )
+            result = self.vector_index.vector_store.query(vs_query)
+            similarities = result.similarities or [0.0] * len(result.nodes)
+            return [NodeWithScore(node=n, score=s) for n, s in zip(result.nodes, similarities)]
+
+        # Broad vector search — retrieve a wide pool of candidates
+        vector_nodes = _vector_query(top_k=12)
+        t3 = time.time()
+        print(f"[TIMING] broad vector search: {t3 - t2:.2f}s")
+
+        # GUARANTEED RETRIEVAL for KG-identified lessons.
         # Without this, boosted_lesson_ids can point at a lesson that has ZERO
         # chunks in the top-25 pool (e.g. an entity mentioned in passing in a
         # lesson that isn't semantically "about" it - this was the Carducci bug).
@@ -77,8 +106,9 @@ class SmartHybridRetriever(BaseRetriever):
         forced_nodes = []
         for file_id in boosted_lesson_ids:
             filters = MetadataFilters(filters=[MetadataFilter(key="file_id", value=file_id)])
-            forced_retriever = self.vector_index.as_retriever(similarity_top_k=3, filters=filters)
-            forced_nodes.extend(forced_retriever.retrieve(effective_bundle))
+            forced_nodes.extend(_vector_query(top_k=3, filters=filters))
+        t4 = time.time()
+        print(f"[TIMING] forced retrieval ({len(boosted_lesson_ids)} lessons): {t4 - t3:.2f}s")
 
         all_candidates = vector_nodes + forced_nodes
 
@@ -94,11 +124,11 @@ class SmartHybridRetriever(BaseRetriever):
         # 4. Cross-encoder re-ranking with boosting
         if unique_nodes:
             pairs = [[cleaned_query, node.node.get_text()] for node in unique_nodes]
-            scores = self.reranker.compute_score(pairs, normalize=True)
+            scores = self.reranker.predict(pairs, batch_size=len(pairs), activation_function=torch.nn.Sigmoid())
+            t5 = time.time()
+            print(f"[TIMING] cross-encoder rerank ({len(pairs)} pairs): {t5 - t4:.2f}s")
             
-            # Handle single result (returns float instead of list)
-            if isinstance(scores, float):
-                scores = [scores]
+            scores = scores.tolist()
             
             # Boost scores for chunks that belong to the graph-disambiguated lessons.
             # The floor (max with 0.5) matters for force-fetched nodes: a chunk that
@@ -121,9 +151,10 @@ class SmartHybridRetriever(BaseRetriever):
             reranked_nodes = [node for _, node in scored_nodes[:8]]
         else:
             reranked_nodes = []
+            t5 = time.time()
 
         # 5. Graph Metadata Enrichment
-        from llama_index.core.schema import NodeWithScore, TextNode
+        from llama_index.core.schema import TextNode
         metadata_nodes = []
         seen_file_ids = set()
         
@@ -138,6 +169,9 @@ class SmartHybridRetriever(BaseRetriever):
                         metadata={"source": "rdflib_graph_metadata", "file_id": file_id}
                     )
                     metadata_nodes.append(NodeWithScore(node=text_node, score=1.0))
+        t6 = time.time()
+        print(f"[TIMING] graph metadata enrichment: {t6 - t5:.2f}s")
+        print(f"[TIMING] TOTAL _retrieve(): {t6 - t0:.2f}s")
         
         # We return the metadata text blocks first, so the LLM reads them before the chunks
         return metadata_nodes + reranked_nodes
@@ -171,9 +205,17 @@ def setup_hybrid_retriever():
         
     graph_retriever = CustomRDFRetriever(rdf_graph=kg)
     
-    # Initialize the BGE cross-encoder re-ranker
-    # Forcing fp32/cpu to prevent Mac Apple Silicon (MPS) silent hangs
-    reranker = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=False)
+    # Initialize the BGE cross-encoder re-ranker.
+    # Using the smaller "base" variant instead of "v2-m3": v2-m3 (~568M params) is
+    # built for maximum multilingual quality, but on a CPU-only deployment (no GPU)
+    # its cost dominates total latency (measured: ~0.6-0.7s per query-chunk pair).
+    # bge-reranker-base is roughly half the parameters and still multilingual
+    # (XLM-RoBERTa-base backbone), trading a bit of ranking precision for a
+    # meaningful, direct cut in per-query latency on CPU.
+    # fp16 is left disabled on purpose: on CPU (no CUDA/MPS) fp16 generally does
+    # NOT speed up inference and can even slow it down due to missing optimized
+    # kernels - it's a GPU/MPS optimization, not a CPU one.
+    reranker = CrossEncoder("BAAI/bge-reranker-base", max_length=320)
     
     smart_retriever = SmartHybridRetriever(vector_index, graph_retriever, reranker)
     return smart_retriever

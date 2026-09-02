@@ -64,21 +64,29 @@ class CustomRDFRetriever(BaseRetriever):
         super().__init__()
 
     def _build_entity_indices(self):
-        """Precomputes entity<->lesson reverse indices in a single pass over the
-        graph. Done once at startup (not per-query) so entity-overlap lookups are
-        just dict lookups afterwards instead of repeated triple scans."""
+        """Precomputes entity<->lesson reverse indices, AND a file_id->lesson_uri
+        index, in a single pass over the graph. Done once at startup (not
+        per-query) so lookups afterwards are dict lookups instead of repeated
+        full-graph triple scans (get_lesson_metadata used to do
+        `for s,p,o in self.rdf_graph.triples(...)` on EVERY call, up to 8x per
+        query - that's an O(n_lessons) scan repeated needlessly)."""
         from rdflib.namespace import DCTERMS
         from collections import defaultdict
 
         entity_to_lessons = defaultdict(set)
         lesson_to_entities = defaultdict(set)
+        file_id_to_lesson_uri = {}
 
         for lesson_uri, _, entity_uri in self.rdf_graph.triples((None, DCTERMS.references, None)):
             entity_to_lessons[entity_uri].add(lesson_uri)
             lesson_to_entities[lesson_uri].add(entity_uri)
 
+        for lesson_uri, _, identifier in self.rdf_graph.triples((None, DCTERMS.identifier, None)):
+            file_id_to_lesson_uri[str(identifier)] = lesson_uri
+
         self.entity_to_lessons = entity_to_lessons
         self.lesson_to_entities = lesson_to_entities
+        self.file_id_to_lesson_uri = file_id_to_lesson_uri
 
     def _load_authoritative_entities(self):
         """Loads the authoritative CSV into a dictionary for exact Named Entity Recognition."""
@@ -181,13 +189,11 @@ class CustomRDFRetriever(BaseRetriever):
         """Retrieves formatted metadata for a specific lesson file_id."""
         from rdflib.namespace import DCTERMS
         from rdflib import URIRef
-        
-        lesson_uri = None
-        for s, p, o in self.rdf_graph.triples((None, DCTERMS.identifier, None)):
-            if str(o) == file_id:
-                lesson_uri = s
-                break
-                
+
+        # O(1) lookup via the prebuilt index instead of scanning every
+        # dcterms:identifier triple in the graph on every call.
+        lesson_uri = self.file_id_to_lesson_uri.get(file_id)
+
         if not lesson_uri:
             return ""
             
