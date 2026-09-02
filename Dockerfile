@@ -7,5 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Hugging Face richiede che l'app giri sulla porta 7860
-CMD ["chainlit", "run", "app.py", "--port", "7860", "--host", "0.0.0.0"]
+# Esponiamo esplicitamente la porta 8000 (quella standard di Chainlit)
+EXPOSE 8000
+
+# Il comando blindato che forza l'host e la porta
+CMD ["chainlit", "run", "app.py", "--host", "0.0.0.0", "--port", "8000"]
