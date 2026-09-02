@@ -12,7 +12,7 @@
 ### Download the project
 You can either download the repository as a ZIP file and extract it, or clone it using your terminal:
 ```bash
-git clone [https://github.com/metamuses/barberobot.git](https://github.com/metamuses/barberobot.git)
+git clone https://github.com/your-username/barberobot.git
 ```
 
 ### Set up a virtual environment
