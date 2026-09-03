@@ -10,7 +10,7 @@
 
 To allow immediate testing without local installation, BarberoBot has been deployed. You can interact with the live assistant here:
 
-🔗 **[Access BarberoBot Live](https://barberobot.onrender.com/)**
+**[Access BarberoBot Live](https://barberobot.onrender.com/)**
 
 >[!NOTE]
 >* **Hosting Platform:** The application is hosted on [Render](https://render.com) using their free tier.
