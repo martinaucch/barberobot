@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # LlamaIndex Imports
 from llama_index.core import Settings
-from llama_index.llms.mistralai import MistralAI 
+from llama_index.llms.groq import Groq 
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core import PromptTemplate
 from llama_index.core.memory import ChatMemoryBuffer
@@ -48,7 +48,7 @@ Your role is to act as a scholarly recommendation and guidance system. When answ
      - Mention the macro-theme or series (e.g., "Questa lezione fa parte della serie '[Series Title]' ([Year])").
      - Suggest related lessons in the same series to further the user's exploration (e.g. "Le altre lezioni di questa serie sono '[sibling_lessons]').
      - Se nei metadati compare "Altre lezioni con temi/entità in comune", consiglia anche queste ultime dicendo qualcosa come: "Potrebbero interessarti anche queste altre lezioni su temi simili: ...".
-
+    
 4. CONVERSATIONAL CONTEXT:
    - Below is the recent conversation history. Use it to understand follow-up questions (e.g. if the user says "dimmi di più", refer to the last topic discussed).
 
@@ -70,10 +70,11 @@ async def start():
     Runs once when the user opens the web browser. This initializes the isolated user session.
     """
     # 1. Setup the LLM specific to this session
-    llm = MistralAI(
-        model="open-mistral-nemo", 
+    llm = Groq(
+        model="qwen/qwen3.8-27b", 
+        api_key=os.environ.get("GROQ_API_KEY"),  
         temperature=0.1,
-        max_tokens=2048,
+        context_window=32768,
     )
     Settings.llm = llm
     Settings.context_window = 32768
@@ -235,7 +236,7 @@ Standalone Question:"""
                 lesson_url = f"https://metamuses.github.io/barberotheca/lesson.html?id={lesson_id}"
                 
                 final_text += f"- **[{title}]({lesson_url})** ({elements_str})\n"
-
+                
         # 7. Save the new exchange to the memory buffer
         memory.put(ChatMessage(role=MessageRole.USER, content=message.content))
         memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=final_text))

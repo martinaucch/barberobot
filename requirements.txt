@@ -1,6 +1,6 @@
 chainlit  
 llama-index  
-llama-index-llms-mistralai
+llama-index-llms-groq
 llama-index-embeddings-mistralai
 llama-index-postprocessor-cohere-rerank
 llama-index-vector-stores-chroma  
