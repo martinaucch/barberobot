@@ -6,6 +6,16 @@
 
 ## Architecture
 
+## Deployment (Live Demo)
+
+To allow immediate testing without local installation, BarberoBot has been deployed. You can interact with the live assistant here:
+
+🔗 **[Access BarberoBot Live](https://barberobot.onrender.com/)**
+
+>[!NOTE]
+>* **Hosting Platform:** The application is hosted on [Render](https://render.com) using their free tier.
+>* **Cold Starts:** Because it runs on a free instance, the server goes to sleep after a period of inactivity. If the bot hasn't been accessed recently, it may take 1 to 2 minutes to >"wake up" and load upon your first visit. 
+
 ## How to run the app locally
 ### Prerequisites 
 >[!IMPORTANT]
