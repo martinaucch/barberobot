@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # LlamaIndex Imports
 from llama_index.core import Settings
-from llama_index.llms.groq import Groq 
+from llama_index.llms.mistralai import MistralAI 
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core import PromptTemplate
 from llama_index.core.memory import ChatMemoryBuffer
@@ -16,8 +16,7 @@ from llama_index.core.llms import ChatMessage, MessageRole
 # Import our custom hybrid retriever setup
 from hybrid_retriever import setup_hybrid_retriever
 
-# Fix for Mac Apple Silicon (MPS) Out of Memory errors when loading large embedding models
-os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+
 
 # Load environment variables
 load_dotenv()
@@ -71,11 +70,10 @@ async def start():
     Runs once when the user opens the web browser. This initializes the isolated user session.
     """
     # 1. Setup the LLM specific to this session
-    llm = Groq(
-        model="qwen/qwen3.8-27b", 
-        api_key=os.environ.get("GROQ_API_KEY"),
+    llm = MistralAI(
+        model="open-mistral-nemo", 
         temperature=0.1,
-        context_window=32768, # Explicitly set large context window to avoid negative context errors
+        max_tokens=2048,
     )
     Settings.llm = llm
     Settings.context_window = 32768

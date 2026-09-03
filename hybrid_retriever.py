@@ -9,9 +9,8 @@ from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, Vect
 from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from sentence_transformers import CrossEncoder
-import torch
+from llama_index.embeddings.mistralai import MistralAIEmbedding
+from llama_index.postprocessor.cohere_rerank import CohereRerank
 
 # Import our custom components
 from graph_store import load_or_update_graph, CustomRDFRetriever
@@ -47,7 +46,7 @@ class SmartHybridRetriever(BaseRetriever):
     4. Cross-encoder re-rank all 25 candidates
     5. Return top 8 re-ranked chunks + graph facts
     """
-    def __init__(self, vector_index: VectorStoreIndex, graph_retriever: CustomRDFRetriever, reranker: CrossEncoder):
+    def __init__(self, vector_index: VectorStoreIndex, graph_retriever: CustomRDFRetriever, reranker: CohereRerank):
         self.vector_index = vector_index
         self.graph_retriever = graph_retriever
         self.reranker = reranker
@@ -123,12 +122,10 @@ class SmartHybridRetriever(BaseRetriever):
         
         # 4. Cross-encoder re-ranking with boosting
         if unique_nodes:
-            pairs = [[cleaned_query, node.node.get_text()] for node in unique_nodes]
-            scores = self.reranker.predict(pairs, batch_size=len(pairs), activation_function=torch.nn.Sigmoid())
+            self.reranker.top_n = len(unique_nodes) # Ensure it scores all candidates
+            cohere_nodes = self.reranker.postprocess_nodes(unique_nodes, QueryBundle(cleaned_query))
             t5 = time.time()
-            print(f"[TIMING] cross-encoder rerank ({len(pairs)} pairs): {t5 - t4:.2f}s")
-            
-            scores = scores.tolist()
+            print(f"[TIMING] cohere rerank ({len(unique_nodes)} nodes): {t5 - t4:.2f}s")
             
             # Boost scores for chunks that belong to the graph-disambiguated lessons.
             # The floor (max with 0.5) matters for force-fetched nodes: a chunk that
@@ -136,7 +133,8 @@ class SmartHybridRetriever(BaseRetriever):
             # cross-encoder score (it wasn't semantically top-matched to begin with),
             # so the additive boost alone might not be enough to keep it in the top 8.
             boosted_scores = []
-            for score, node in zip(scores, unique_nodes):
+            for node in cohere_nodes:
+                score = node.score or 0.0
                 file_id = node.node.metadata.get("file_id")
                 if file_id in boosted_lesson_ids:
                     boosted_scores.append(max(score + 0.5, 0.5))
@@ -144,11 +142,14 @@ class SmartHybridRetriever(BaseRetriever):
                     boosted_scores.append(score)
             
             # Sort by boosted re-ranker score (descending)
-            scored_nodes = list(zip(boosted_scores, unique_nodes))
+            scored_nodes = list(zip(boosted_scores, cohere_nodes))
             scored_nodes.sort(key=lambda x: x[0], reverse=True)
             
             # Take top 8 after re-ranking
             reranked_nodes = [node for _, node in scored_nodes[:8]]
+            
+            for boosted_score, node in scored_nodes[:8]:
+                node.score = boosted_score
         else:
             reranked_nodes = []
             t5 = time.time()
@@ -181,12 +182,7 @@ def setup_hybrid_retriever():
     if not os.path.exists(PERSIST_DIR):
         raise FileNotFoundError("Storage directory not found. Please run vector_store.py first!")
 
-    embed_model = HuggingFaceEmbedding(
-        model_name="intfloat/multilingual-e5-large-instruct",
-        query_instruction="Instruct: Given a query, retrieve relevant passages from the lesson's transcripts that answer the query\nQuery: ",
-        text_instruction="",
-        device="cpu"
-    )
+    embed_model = MistralAIEmbedding(model_name="mistral-embed")
     from llama_index.core import Settings
     Settings.embed_model = embed_model
 
@@ -205,23 +201,16 @@ def setup_hybrid_retriever():
         
     graph_retriever = CustomRDFRetriever(rdf_graph=kg)
     
-    # Initialize the BGE cross-encoder re-ranker.
-    # Using the smaller "base" variant instead of "v2-m3": v2-m3 (~568M params) is
-    # built for maximum multilingual quality, but on a CPU-only deployment (no GPU)
-    # its cost dominates total latency (measured: ~0.6-0.7s per query-chunk pair).
-    # bge-reranker-base is roughly half the parameters and still multilingual
-    # (XLM-RoBERTa-base backbone), trading a bit of ranking precision for a
-    # meaningful, direct cut in per-query latency on CPU.
-    # fp16 is left disabled on purpose: on CPU (no CUDA/MPS) fp16 generally does
-    # NOT speed up inference and can even slow it down due to missing optimized
-    # kernels - it's a GPU/MPS optimization, not a CPU one.
-    reranker = CrossEncoder("BAAI/bge-reranker-base", max_length=320)
+    # Initialize Cohere Reranker
+    reranker = CohereRerank(model="rerank-multilingual-v3.0", top_n=50)
     
     smart_retriever = SmartHybridRetriever(vector_index, graph_retriever, reranker)
     return smart_retriever
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    load_dotenv()
     from llama_index.core import Settings
     Settings.llm = None
     

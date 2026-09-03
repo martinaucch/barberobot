@@ -1,7 +1,8 @@
 import os
+from dotenv import load_dotenv
 import chromadb
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.mistralai import MistralAIEmbedding
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core.ingestion import IngestionPipeline, DocstoreStrategy
 from llama_index.core.storage.docstore import SimpleDocumentStore
@@ -12,19 +13,15 @@ from ingestion import load_data_from_barberotheca
 PERSIST_DIR = "./storage"
 
 def update_vector_store():
+    load_dotenv()
     # Fetch documents
     _, documents = load_data_from_barberotheca()
     
     if not documents:
         return
 
-    # Initialize HuggingFace embedding model for multilingual-e5-large-instruct
-    embed_model = HuggingFaceEmbedding(
-        model_name="intfloat/multilingual-e5-large-instruct",
-        query_instruction="Instruct: Given a query, retrieve relevant passages from the lesson's transcripts that answer the query\nQuery: ",
-        text_instruction="",
-        device="cpu"
-    )
+    # Initialize MistralAI embedding model
+    embed_model = MistralAIEmbedding(model_name="mistral-embed")
 
     # Set up ChromaDB Vector Database
     db = chromadb.PersistentClient(path=PERSIST_DIR)
@@ -51,10 +48,29 @@ def update_vector_store():
         vector_store=vector_store,
     )
     
-    # Process documents one at a time to avoid MPS memory pressure
+    import time
+    
+    print(f"Processing {len(documents)} documents one by one with retry logic...")
     for i, doc in enumerate(documents):
-        print(f"[{i+1}/{len(documents)}] {doc.id_}")
-        pipeline.run(documents=[doc], show_progress=True)
+        print(f"Processing Document {i+1}/{len(documents)}: {doc.id_}")
+        
+        success = False
+        while not success:
+            try:
+                pipeline.run(documents=[doc], show_progress=True)
+                success = True
+                # Persist progress immediately so we don't start over if interrupted
+                pipeline.docstore.persist(docstore_path)
+                # Add a small buffer sleep to avoid hitting the limit constantly
+                time.sleep(2)
+            except Exception as e:
+                err_msg = str(e)
+                if any(x in err_msg for x in ["429", "Rate limit", "503", "temporarily unavailable", "high load"]):
+                    print(f"API overload on document {doc.id_}. Waiting 30 seconds before retrying...")
+                    time.sleep(30)
+                else:
+                    # If it's a different error, we should raise it to not get stuck in an infinite loop
+                    raise e
     
     pipeline.docstore.persist(docstore_path)
     print(f"Done. Total chunks: {chroma_collection.count()}")

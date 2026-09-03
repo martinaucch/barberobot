@@ -1,10 +1,9 @@
 chainlit  
 llama-index  
-llama-index-llms-groq  
+llama-index-llms-mistralai
+llama-index-embeddings-mistralai
+llama-index-postprocessor-cohere-rerank
 llama-index-vector-stores-chroma  
-llama-index-embeddings-huggingface  
-sentence-transformers 
-torch  
 rdflib  
 pandas  
 python-dotenv  
