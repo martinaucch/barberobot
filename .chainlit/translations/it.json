@@ -132,7 +132,7 @@
             "title": "Impostazioni",
             "customize": "Personalizza le impostazioni della tua chat qui"
         },
-        "watermark": "Gli LLMS possono commettere errori. Verifica le info importanti."
+        "watermark": "BarberoBot is an academic educational project. It uses transcript excerpts from Professor Alessandro Barbero's lectures for non-commercial purposes only. All rights belong to their respective owners. LLMs may occasionally make mistakes."
     },
     "threadHistory": {
         "sidebar": {
