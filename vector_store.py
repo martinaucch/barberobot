@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import chromadb
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.embeddings.mistralai import MistralAIEmbedding
+from llama_index.embeddings.cohere import CohereEmbedding
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core.ingestion import IngestionPipeline, DocstoreStrategy
 from llama_index.core.storage.docstore import SimpleDocumentStore
@@ -20,8 +20,12 @@ def update_vector_store():
     if not documents:
         return
 
-    # Initialize MistralAI embedding model
-    embed_model = MistralAIEmbedding(model_name="mistral-embed")
+    # Initialize Cohere embedding model
+    embed_model = CohereEmbedding(
+        model_name="embed-multilingual-v3.0", 
+        input_type="search_document",
+        cohere_api_key=os.environ.get("COHERE_API_KEY")
+    )
 
     # Set up ChromaDB Vector Database
     db = chromadb.PersistentClient(path=PERSIST_DIR)

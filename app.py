@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # LlamaIndex Imports
 from llama_index.core import Settings
-from llama_index.llms.groq import Groq 
+from llama_index.llms.groq import Groq
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core import PromptTemplate
 from llama_index.core.memory import ChatMemoryBuffer

@@ -9,7 +9,7 @@ from llama_index.core.vector_stores import MetadataFilters, MetadataFilter, Vect
 from llama_index.core.schema import NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.core import VectorStoreIndex
-from llama_index.embeddings.mistralai import MistralAIEmbedding
+from llama_index.embeddings.cohere import CohereEmbedding
 from llama_index.postprocessor.cohere_rerank import CohereRerank
 
 # Import our custom components
@@ -182,7 +182,11 @@ def setup_hybrid_retriever():
     if not os.path.exists(PERSIST_DIR):
         raise FileNotFoundError("Storage directory not found. Please run vector_store.py first!")
 
-    embed_model = MistralAIEmbedding(model_name="mistral-embed")
+    embed_model = CohereEmbedding(
+        model_name="embed-multilingual-v3.0", 
+        input_type="search_query",
+        cohere_api_key=os.environ.get("COHERE_API_KEY")
+    )
     from llama_index.core import Settings
     Settings.embed_model = embed_model
 
@@ -202,7 +206,11 @@ def setup_hybrid_retriever():
     graph_retriever = CustomRDFRetriever(rdf_graph=kg)
     
     # Initialize Cohere Reranker
-    reranker = CohereRerank(model="rerank-multilingual-v3.0", top_n=50)
+    reranker = CohereRerank(
+        model="rerank-multilingual-v3.0", 
+        top_n=50,
+        api_key=os.environ.get("COHERE_API_KEY")
+    )
     
     smart_retriever = SmartHybridRetriever(vector_index, graph_retriever, reranker)
     return smart_retriever
