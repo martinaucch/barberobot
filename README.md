@@ -8,8 +8,8 @@
 
 ## How to run the app locally
 ### Prerequisites 
-[!IMPORTANT]
-Before starting, ensure your system meets the following requirements and that you have the necessary API keys:
+>[!IMPORTANT]
+> Before starting, ensure your system meets the following requirements and that you have the necessary API keys:
 
 * **Python 3.10 or 3.11**: Newer versions (e.g., Python 3.14) are not currently supported due to known incompatibilities with the asynchronous `anyio` library used by the interface.
 * **Git LFS (Large File Storage)**: Required to download the pre-computed ChromaDB vector database. We chose to provide the database via LFS to save users from having to re-vectorize the entire archive.
@@ -24,8 +24,8 @@ Open your terminal and clone the repository:
 ```bash
 git clone https://github.com/martinaucch/barberobot.git
 ```
-[!NOTE]
-The submodule initialization may take a moment as it downloads the complete original text transcripts alongside the metadata. While these raw transcripts are not strictly required to run the app right now (since the vector database is already pre-computed and provided via Git LFS), pulling them is a deliberate architectural choice. It ensures the environment remains fully scalable, and ready for any future local re-ingestion or pipeline updates.
+>[!NOTE]
+>The submodule initialization may take a moment as it downloads the complete original text transcripts alongside the metadata. While these raw transcripts are not strictly required to >run the app right now (since the vector database is already pre-computed and provided via Git LFS), pulling them is a deliberate architectural choice. It ensures the environment >remains fully scalable, and ready for any future local re-ingestion or pipeline updates.
 
 ### Data synchronization
 Download the large vector database files and initialize the Barberotheca submodule to gain access to the local RDF graph files:
