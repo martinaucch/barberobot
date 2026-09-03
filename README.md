@@ -5,7 +5,7 @@
 ## How to run the app locally
 ### Prerequisites 
 * Python 3.10 or 3.11 installed on your system.
-* A valid **Groq** API key to query the LLM.
+* A valid **TBD: ADD NAME** API key to query the LLM.
 
 ### Download the project
 You can either download the repository as a ZIP file and extract it, or clone it using your terminal:
@@ -29,7 +29,7 @@ pip install -r requirements.txt
 ### Configure Environment Variables
 Create a `.env` file in the root directory of the project and add your Groq API key:
 ```env
-GROQ_API_KEY="your_api_key_here"
+NAME_OF_API="your_api_key_here"
 ```
 
 ### Run the application
