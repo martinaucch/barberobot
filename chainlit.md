@@ -171,9 +171,9 @@ grounding through two primary chat features:
     listen to the original lesson, bringing the exploration journey full
     circle.
 
-However, the current UI does present a few minor limitations:
+However, the current UI does present a few minor limitations that slightly impact the overall user experience:
 
--   **UX Source Panel**: Because of how the transparent sourcing is
+-   **Forced Side Panel**: Because of how the transparent sourcing is
     implemented, Chainlit automatically forces the side panel open to
     display the transcript chunks. This behavior cannot be easily
     disabled and creates a slightly cluttered user experience upon
