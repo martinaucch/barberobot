@@ -14,11 +14,9 @@ However, the architecture is designed to scale: if new lectures are added to Bar
 3. Update the RDF graph cache via `graph_store.py`.
 4. Push the updated `storage/` database via Git LFS and redeploy the application.
 
-It is important to note that the current live deployment of BarberoBot runs on this existing, pre-vectorized snapshot of the Barberoteca archive stored securely within the Chroma database.
-
 ## Deployment (Live Demo)
 
-To allow immediate testing without local installation, BarberoBot has been deployed. You can interact with the live assistant here:
+To allow immediate testing without local installation, BarberoBot has been deployed. Users can interact with the live assistant here:
 
 **[Access BarberoBot Live](https://barberobot.onrender.com/)**
 
@@ -35,7 +33,7 @@ To allow immediate testing without local installation, BarberoBot has been deplo
 * **Git LFS (Large File Storage)**: Required to download the pre-computed ChromaDB vector database. We chose to provide the database via LFS to save users from having to re-vectorize the entire archive.
   * *On Mac*: Install via terminal by typing `brew install git-lfs`
   * *On Windows/Linux*: Download and install from [git-lfs.github.com](https://git-lfs.github.com/)
-* **API Keys**: The hybrid cloud system requires you to create two free API keys:
+* **API Keys**: The hybrid cloud system requires you to create two free API keys.
   * **Groq API Key**: It has been decided to keep this step to leverage Groq's lightning-fast infrastructure and the *Qwen* LLM (`qwen/qwen3.8-27b`), which the tests guaranteed significantly better response quality.
   * **Cohere API Key**: Required as the engine for processing multilingual embeddings and for the crucial cross-encoder re-ranking step.
 ### Clone the project
