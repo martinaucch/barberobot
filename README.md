@@ -3,6 +3,8 @@ BarberoBot is an advanced conversational feature developed as an extension of [B
 
 To achieve this, the hybrid system is engineered to recognize named entities within user queries by leveraging the Knowledge Graph generated for Barberoteca, ensuring precise retrieval of lessons where those specific entities are mentioned before the vector search. If no direct entity match is found, only the semantic vector search is performed. Furthermore, the Knowledge Graph is utilized to inject direct links back to the digital library into the responses, bridging the gap between the conversational interface and the existing archive to deliver a functional enhancement.
 
+![Architecture Diagram](report/diagram.png)
+
 ## Scalability and Architecture
 One of the core design principles of the Barberotheca project is its potential for scalability. Currently, the archive's transcripts are derived entirely from lectures given by Professor Alessandro Barbero at the *Festival della Mente* cultural event in Italy, making BarberoBot's current deployment rely on a static snapshot of this archive. 
 
