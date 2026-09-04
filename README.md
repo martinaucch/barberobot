@@ -18,8 +18,6 @@ However, the architecture is designed to scale: if new lectures are added to Bar
 
 It is important to note that the current live deployment of BarberoBot runs on this existing, pre-vectorized snapshot of the Barberoteca archive stored securely within the Chroma database.
 
-## Architecture
-
 ## Deployment (Live Demo)
 
 To allow immediate testing without local installation, BarberoBot has been deployed. You can interact with the live assistant here:
