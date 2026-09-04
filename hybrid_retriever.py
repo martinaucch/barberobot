@@ -1,6 +1,5 @@
 import os
 import re
-import time
 import chromadb
 from typing import List
 from llama_index.core import QueryBundle
@@ -53,7 +52,6 @@ class SmartHybridRetriever(BaseRetriever):
         super().__init__()
 
     def _retrieve(self, query_bundle: QueryBundle) -> List:
-        t0 = time.time()
         raw_query = query_bundle.query_str
         cleaned_query = clean_query(raw_query)
         
@@ -65,20 +63,9 @@ class SmartHybridRetriever(BaseRetriever):
         entity_lesson_ids = set(self.graph_retriever.get_lessons_for_entities(entities)) if entities else set()
 
         boosted_lesson_ids = entity_lesson_ids
-        t1 = time.time()
-        print(f"[TIMING] entity extraction: {t1 - t0:.2f}s")
 
-        # 2. Compute the query embedding ONCE and reuse it for every vector call
-        # below. Previously, each `.as_retriever().retrieve()` call silently
-        # re-embedded the same query text with a heavy CPU embedding model
-        # (multilingual-e5-large-instruct, ~560M params) - once for the broad
-        # search, then AGAIN for every single boosted lesson in the forced-
-        # retrieval loop. With N matched lessons that's N+1 embedding
-        # computations for one query. Embedding once and passing the vector
-        # directly removes all that redundant work.
+        # 2. Compute the query embedding once to avoid redundant API calls during broad and forced retrievals.
         query_embedding = self.vector_index._embed_model.get_query_embedding(cleaned_query)
-        t2 = time.time()
-        print(f"[TIMING] query embedding (x1): {t2 - t1:.2f}s")
 
         def _vector_query(top_k: int, filters=None):
             vs_query = VectorStoreQuery(
@@ -92,22 +79,12 @@ class SmartHybridRetriever(BaseRetriever):
 
         # Broad vector search — retrieve a wide pool of candidates
         vector_nodes = _vector_query(top_k=8)
-        t3 = time.time()
-        print(f"[TIMING] broad vector search: {t3 - t2:.2f}s")
 
-        # GUARANTEED RETRIEVAL for KG-identified lessons.
-        # Without this, boosted_lesson_ids can point at a lesson that has ZERO
-        # chunks in the top-25 pool (e.g. an entity mentioned in passing in a
-        # lesson that isn't semantically "about" it - this was the Carducci bug).
-        # A boost with nothing to boost does nothing, so we explicitly fetch the
-        # best-matching chunk(s) from each identified lesson via a metadata filter,
-        # guaranteeing they're at least in the pool to be reranked and boosted.
+        # Forced retrieval: explicitly fetch top chunks from KG-identified lessons to ensure they enter the reranking pool.
         forced_nodes = []
         for file_id in boosted_lesson_ids:
             filters = MetadataFilters(filters=[MetadataFilter(key="file_id", value=file_id)])
             forced_nodes.extend(_vector_query(top_k=3, filters=filters))
-        t4 = time.time()
-        print(f"[TIMING] forced retrieval ({len(boosted_lesson_ids)} lessons): {t4 - t3:.2f}s")
 
         all_candidates = vector_nodes + forced_nodes
 
@@ -124,14 +101,8 @@ class SmartHybridRetriever(BaseRetriever):
         if unique_nodes:
             self.reranker.top_n = len(unique_nodes) # Ensure it scores all candidates
             cohere_nodes = self.reranker.postprocess_nodes(unique_nodes, QueryBundle(cleaned_query))
-            t5 = time.time()
-            print(f"[TIMING] cohere rerank ({len(unique_nodes)} nodes): {t5 - t4:.2f}s")
             
-            # Boost scores for chunks that belong to the graph-disambiguated lessons.
-            # The floor (max with 0.5) matters for force-fetched nodes: a chunk that
-            # only entered the pool via the metadata filter above may get a low raw
-            # cross-encoder score (it wasn't semantically top-matched to begin with),
-            # so the additive boost alone might not be enough to keep it in the top 8.
+            # Boost scores for chunks belonging to graph-identified lessons, applying a floor of 0.5.
             boosted_scores = []
             for node in cohere_nodes:
                 score = node.score or 0.0
@@ -152,7 +123,6 @@ class SmartHybridRetriever(BaseRetriever):
                 node.score = boosted_score
         else:
             reranked_nodes = []
-            t5 = time.time()
 
         # 5. Graph Metadata Enrichment
         from llama_index.core.schema import TextNode
@@ -170,9 +140,6 @@ class SmartHybridRetriever(BaseRetriever):
                         metadata={"source": "rdflib_graph_metadata", "file_id": file_id}
                     )
                     metadata_nodes.append(NodeWithScore(node=text_node, score=1.0))
-        t6 = time.time()
-        print(f"[TIMING] graph metadata enrichment: {t6 - t5:.2f}s")
-        print(f"[TIMING] TOTAL _retrieve(): {t6 - t0:.2f}s")
         
         # We return the metadata text blocks first, so the LLM reads them before the chunks
         return metadata_nodes + reranked_nodes
@@ -214,24 +181,3 @@ def setup_hybrid_retriever():
     
     smart_retriever = SmartHybridRetriever(vector_index, graph_retriever, reranker)
     return smart_retriever
-
-
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
-    from llama_index.core import Settings
-    Settings.llm = None
-    
-    retriever = setup_hybrid_retriever()
-    
-    print("\n--- TEST 1: Specific Entity (Carducci) ---")
-    nodes1 = retriever.retrieve(QueryBundle("Cosa sai di Carducci?"))
-    for n in nodes1:
-        print(n.node.get_text()[:150].replace('\n', ' '))
-        
-    print("\n--- TEST 2: Conceptual (Malattie nel medioevo) ---")
-    nodes2 = retriever.retrieve(QueryBundle("ciao barberobot! cosa mi sai dire sulle malattie nel medioevo?"))
-    for n in nodes2:
-        meta = n.node.metadata
-        file_id = meta.get("file_id", "graph")
-        print(f"  [{file_id}] {n.node.get_text()[:120].replace(chr(10), ' ')}")

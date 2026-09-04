@@ -69,7 +69,7 @@ async def start():
     """
     Runs once when the user opens the web browser. This initializes the isolated user session.
     """
-    # 1. Setup the LLM specific to this session
+    # Setup the LLM specific to this session
     llm = Groq(
         model="qwen/qwen3.8-27b", 
         api_key=os.environ.get("GROQ_API_KEY"),  
@@ -83,13 +83,13 @@ async def start():
     import asyncio
     await asyncio.sleep(2)
 
-    # 2. Let the user know the system is booting up
+    # Let the user know the system is booting up
     
     msg = cl.Message(content="Caricamento dei modelli della Barberotheca in memoria...")
     await msg.send()
 
     try:
-        # 3. Initialize the Hybrid Retriever and Query Engine FOR THIS USER ONLY
+        # Initialize the Hybrid Retriever and Query Engine FOR THIS USER ONLY
         hybrid_retriever = setup_hybrid_retriever()
         
         query_engine = RetrieverQueryEngine.from_args(
@@ -101,7 +101,7 @@ async def start():
             {"response_synthesizer:text_qa_template": PromptTemplate(prompt_text)}
         )
         
-        # 4. Store the engine and memory in the isolated user session dictionary
+        # Store the engine and memory in the isolated user session dictionary
         memory = ChatMemoryBuffer.from_defaults(token_limit=4096)
         cl.user_session.set("memory", memory)
         cl.user_session.set("query_engine", query_engine)
@@ -118,7 +118,7 @@ async def main(message: cl.Message):
     """
     Runs every time the user types a message in the chat.
     """
-    # 1. Retrieve the isolated query engine and memory for THIS specific user
+    # Retrieve the isolated query engine and memory for THIS specific user
     query_engine = cl.user_session.get("query_engine")
     memory = cl.user_session.get("memory")
     
@@ -165,14 +165,12 @@ Standalone Question:"""
             # Use the LLM to rewrite the query
             condense_resp = await cl.make_async(Settings.llm.complete)(condense_prompt)
             actual_query = str(condense_resp).strip()
-            print(f"Original query: '{message.content}' -> Rewritten: '{actual_query}'")
 
-        # 2. Retrieve nodes manually using the contextualized query
+        # Retrieve nodes manually using the contextualized query
         retriever = query_engine.retriever
         retrieved_nodes = await cl.make_async(retriever.retrieve)(actual_query)
-        print(f"DEBUG: retrieved_nodes count = {len(retrieved_nodes)}")
         
-        # 3. Separate graph nodes from vector nodes
+        # Separate graph nodes from vector nodes
         graph_nodes = []
         vector_nodes = []
         for node in retrieved_nodes:
@@ -182,7 +180,7 @@ Standalone Question:"""
             else:
                 vector_nodes.append(node)
                 
-        # 4. Synthesize the response FIRST (without citations in the text)
+        # Synthesize the response FIRST (without citations in the text)
         final_nodes = graph_nodes + vector_nodes
         response = await cl.make_async(query_engine.synthesize)(
             message.content, nodes=final_nodes
@@ -190,7 +188,7 @@ Standalone Question:"""
         
         final_text = str(response)
         
-        # 5. Programmatically build the sources list and cl.Text elements
+        # Programmatically build the sources list and cl.Text elements
         elements = []
         lessons_dict = defaultdict(list)
         
@@ -224,7 +222,7 @@ Standalone Question:"""
                 "element_name": element_name
             })
             
-        # 6. Append the Sources section to the final text
+        # Append the Sources section to the final text
         if lessons_dict:
             final_text += "\n\n---\n**Fonti usate per questa risposta:**\n"
             for lesson_id, chunks in lessons_dict.items():
@@ -237,7 +235,7 @@ Standalone Question:"""
                 
                 final_text += f"- **[{title}]({lesson_url})** ({elements_str})\n"
                 
-        # 7. Save the new exchange to the memory buffer
+        # Save the new exchange to the memory buffer
         memory.put(ChatMessage(role=MessageRole.USER, content=message.content))
         memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=final_text))
 

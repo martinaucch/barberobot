@@ -64,12 +64,7 @@ class CustomRDFRetriever(BaseRetriever):
         super().__init__()
 
     def _build_entity_indices(self):
-        """Precomputes entity<->lesson reverse indices, AND a file_id->lesson_uri
-        index, in a single pass over the graph. Done once at startup (not
-        per-query) so lookups afterwards are dict lookups instead of repeated
-        full-graph triple scans (get_lesson_metadata used to do
-        `for s,p,o in self.rdf_graph.triples(...)` on EVERY call, up to 8x per
-        query - that's an O(n_lessons) scan repeated needlessly)."""
+        """Precomputes entity-lesson reverse indices to allow O(1) lookups during queries."""
         from rdflib.namespace import DCTERMS
         from collections import defaultdict
 
@@ -135,12 +130,7 @@ class CustomRDFRetriever(BaseRetriever):
         return list(lesson_ids)
 
     def get_related_lessons_by_entities(self, lesson_uri: URIRef, min_shared: int = 2, min_score: float = 0.30, max_results: int = 5) -> list[tuple[str, list[str]]]:
-        """Finds other lessons that share at least `min_shared` entities with the
-        given lesson. Ranks by an inverse-frequency-weighted score, so a shared
-        entity that appears in only a couple of lessons (e.g. 'Firenze') counts far
-        more than one that appears everywhere (e.g. 'Dio', 'Chiesa') - the raw
-        min_shared count is only the qualifying threshold, not the final ranking.
-        Returns a list of tuples: (lesson_title, [shared_entity_names])."""
+        """Finds other lessons sharing at least `min_shared` entities, ranked by an inverse-frequency-weighted score. Returns a list of tuples: (lesson_title, [shared_entity_names])."""
         from collections import defaultdict
 
         this_lesson_entities = self.lesson_to_entities.get(lesson_uri, set())
@@ -250,12 +240,3 @@ class CustomRDFRetriever(BaseRetriever):
     def _retrieve(self, query_bundle: QueryBundle):
         # We don't use this standard LlamaIndex interface anymore in our hybrid flow.
         return []
-
-if __name__ == "__main__":
-    kg = load_or_update_graph()
-    if kg:
-        retriever = CustomRDFRetriever(kg)
-        test_query = "What did Barbero say about Giosuè Carducci?"
-        results = retriever._retrieve(QueryBundle(test_query))
-        for r in results:
-            print(r.node.text)
